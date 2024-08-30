@@ -14,6 +14,7 @@ import (
 	"go.opentelemetry.io/collector/consumer/consumererror"
 	"go.opentelemetry.io/collector/exporter"
 	"go.opentelemetry.io/collector/exporter/exporterqueue"
+	"go.opentelemetry.io/collector/exporter/internal"
 	"go.opentelemetry.io/collector/exporter/internal/queue"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 )
@@ -26,15 +27,15 @@ type metricsRequest struct {
 	pusher consumer.ConsumeMetricsFunc
 }
 
-func newMetricsRequest(md pmetric.Metrics, pusher consumer.ConsumeMetricsFunc) Request {
+func newMetricsRequest(md pmetric.Metrics, pusher consumer.ConsumeMetricsFunc) internal.Request {
 	return &metricsRequest{
 		md:     md,
 		pusher: pusher,
 	}
 }
 
-func newMetricsRequestUnmarshalerFunc(pusher consumer.ConsumeMetricsFunc) exporterqueue.Unmarshaler[Request] {
-	return func(bytes []byte) (Request, error) {
+func newMetricsRequestUnmarshalerFunc(pusher consumer.ConsumeMetricsFunc) exporterqueue.Unmarshaler[internal.Request] {
+	return func(bytes []byte) (internal.Request, error) {
 		metrics, err := metricsUnmarshaler.UnmarshalMetrics(bytes)
 		if err != nil {
 			return nil, err
@@ -43,11 +44,11 @@ func newMetricsRequestUnmarshalerFunc(pusher consumer.ConsumeMetricsFunc) export
 	}
 }
 
-func metricsRequestMarshaler(req Request) ([]byte, error) {
+func metricsRequestMarshaler(req internal.Request) ([]byte, error) {
 	return metricsMarshaler.MarshalMetrics(req.(*metricsRequest).md)
 }
 
-func (req *metricsRequest) OnError(err error) Request {
+func (req *metricsRequest) OnError(err error) internal.Request {
 	var metricsError consumererror.Metrics
 	if errors.As(err, &metricsError) {
 		return newMetricsRequest(metricsError.Data(), req.pusher)
@@ -92,11 +93,11 @@ func NewMetricsExporter(
 // RequestFromMetricsFunc converts pdata.Metrics into a user-defined request.
 // Experimental: This API is at the early stage of development and may change without backward compatibility
 // until https://github.com/open-telemetry/opentelemetry-collector/issues/8122 is resolved.
-type RequestFromMetricsFunc func(context.Context, pmetric.Metrics) (Request, error)
+type RequestFromMetricsFunc func(context.Context, pmetric.Metrics) (internal.Request, error)
 
 // requestFromMetrics returns a RequestFromMetricsFunc that converts pdata.Metrics into a Request.
 func requestFromMetrics(pusher consumer.ConsumeMetricsFunc) RequestFromMetricsFunc {
-	return func(_ context.Context, md pmetric.Metrics) (Request, error) {
+	return func(_ context.Context, md pmetric.Metrics) (internal.Request, error) {
 		return newMetricsRequest(md, pusher), nil
 	}
 }
@@ -153,7 +154,7 @@ func newMetricsSenderWithObservability(obsrep *obsReport) requestSender {
 	return &metricsSenderWithObservability{obsrep: obsrep}
 }
 
-func (mewo *metricsSenderWithObservability) send(ctx context.Context, req Request) error {
+func (mewo *metricsSenderWithObservability) send(ctx context.Context, req internal.Request) error {
 	c := mewo.obsrep.startMetricsOp(ctx)
 	numMetricDataPoints := req.ItemsCount()
 	err := mewo.nextSender.send(c, req)

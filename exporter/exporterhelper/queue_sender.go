@@ -16,6 +16,7 @@ import (
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/exporter"
 	"go.opentelemetry.io/collector/exporter/exporterqueue"
+	"go.opentelemetry.io/collector/exporter/internal"
 	"go.opentelemetry.io/collector/exporter/internal/queue"
 	"go.opentelemetry.io/collector/internal/obsreportconfig/obsmetrics"
 )
@@ -68,16 +69,16 @@ func (qCfg *QueueSettings) Validate() error {
 
 type queueSender struct {
 	baseRequestSender
-	queue          exporterqueue.Queue[Request]
+	queue          exporterqueue.Queue[internal.Request]
 	numConsumers   int
 	traceAttribute attribute.KeyValue
-	consumers      *queue.Consumers[Request]
+	consumers      *queue.Consumers[internal.Request]
 
 	obsrep     *obsReport
 	exporterID component.ID
 }
 
-func newQueueSender(q exporterqueue.Queue[Request], set exporter.Settings, numConsumers int,
+func newQueueSender(q exporterqueue.Queue[internal.Request], set exporter.Settings, numConsumers int,
 	exportFailureMessage string, obsrep *obsReport) *queueSender {
 	qs := &queueSender{
 		queue:          q,
@@ -86,7 +87,7 @@ func newQueueSender(q exporterqueue.Queue[Request], set exporter.Settings, numCo
 		obsrep:         obsrep,
 		exporterID:     set.ID,
 	}
-	consumeFunc := func(ctx context.Context, req Request) error {
+	consumeFunc := func(ctx context.Context, req internal.Request) error {
 		err := qs.nextSender.send(ctx, req)
 		if err != nil {
 			set.Logger.Error("Exporting failed. Dropping data."+exportFailureMessage,
@@ -94,7 +95,7 @@ func newQueueSender(q exporterqueue.Queue[Request], set exporter.Settings, numCo
 		}
 		return err
 	}
-	qs.consumers = queue.NewQueueConsumers[Request](q, numConsumers, consumeFunc)
+	qs.consumers = queue.NewQueueConsumers[internal.Request](q, numConsumers, consumeFunc)
 	return qs
 }
 
@@ -121,7 +122,7 @@ func (qs *queueSender) Shutdown(ctx context.Context) error {
 }
 
 // send implements the requestSender interface. It puts the request in the queue.
-func (qs *queueSender) send(ctx context.Context, req Request) error {
+func (qs *queueSender) send(ctx context.Context, req internal.Request) error {
 	// Prevent cancellation and deadline to propagate to the context stored in the queue.
 	// The grpc/http based receivers will cancel the request context after this function returns.
 	c := context.WithoutCancel(ctx)

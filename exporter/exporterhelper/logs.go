@@ -14,6 +14,7 @@ import (
 	"go.opentelemetry.io/collector/consumer/consumererror"
 	"go.opentelemetry.io/collector/exporter"
 	"go.opentelemetry.io/collector/exporter/exporterqueue"
+	"go.opentelemetry.io/collector/exporter/internal"
 	"go.opentelemetry.io/collector/exporter/internal/queue"
 	"go.opentelemetry.io/collector/pdata/plog"
 )
@@ -26,15 +27,15 @@ type logsRequest struct {
 	pusher consumer.ConsumeLogsFunc
 }
 
-func newLogsRequest(ld plog.Logs, pusher consumer.ConsumeLogsFunc) Request {
+func newLogsRequest(ld plog.Logs, pusher consumer.ConsumeLogsFunc) internal.Request {
 	return &logsRequest{
 		ld:     ld,
 		pusher: pusher,
 	}
 }
 
-func newLogsRequestUnmarshalerFunc(pusher consumer.ConsumeLogsFunc) exporterqueue.Unmarshaler[Request] {
-	return func(bytes []byte) (Request, error) {
+func newLogsRequestUnmarshalerFunc(pusher consumer.ConsumeLogsFunc) exporterqueue.Unmarshaler[internal.Request] {
+	return func(bytes []byte) (internal.Request, error) {
 		logs, err := logsUnmarshaler.UnmarshalLogs(bytes)
 		if err != nil {
 			return nil, err
@@ -43,11 +44,11 @@ func newLogsRequestUnmarshalerFunc(pusher consumer.ConsumeLogsFunc) exporterqueu
 	}
 }
 
-func logsRequestMarshaler(req Request) ([]byte, error) {
+func logsRequestMarshaler(req internal.Request) ([]byte, error) {
 	return logsMarshaler.MarshalLogs(req.(*logsRequest).ld)
 }
 
-func (req *logsRequest) OnError(err error) Request {
+func (req *logsRequest) OnError(err error) internal.Request {
 	var logError consumererror.Logs
 	if errors.As(err, &logError) {
 		return newLogsRequest(logError.Data(), req.pusher)
@@ -92,11 +93,11 @@ func NewLogsExporter(
 // RequestFromLogsFunc converts plog.Logs data into a user-defined request.
 // Experimental: This API is at the early stage of development and may change without backward compatibility
 // until https://github.com/open-telemetry/opentelemetry-collector/issues/8122 is resolved.
-type RequestFromLogsFunc func(context.Context, plog.Logs) (Request, error)
+type RequestFromLogsFunc func(context.Context, plog.Logs) (internal.Request, error)
 
 // requestFromLogs returns a RequestFromLogsFunc that converts plog.Logs into a Request.
 func requestFromLogs(pusher consumer.ConsumeLogsFunc) RequestFromLogsFunc {
-	return func(_ context.Context, ld plog.Logs) (Request, error) {
+	return func(_ context.Context, ld plog.Logs) (internal.Request, error) {
 		return newLogsRequest(ld, pusher), nil
 	}
 }
@@ -153,7 +154,7 @@ func newLogsExporterWithObservability(obsrep *obsReport) requestSender {
 	return &logsExporterWithObservability{obsrep: obsrep}
 }
 
-func (lewo *logsExporterWithObservability) send(ctx context.Context, req Request) error {
+func (lewo *logsExporterWithObservability) send(ctx context.Context, req internal.Request) error {
 	c := lewo.obsrep.startLogsOp(ctx)
 	numLogRecords := req.ItemsCount()
 	err := lewo.nextSender.send(c, req)

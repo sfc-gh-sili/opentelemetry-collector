@@ -21,6 +21,7 @@ import (
 	"go.opentelemetry.io/collector/exporter"
 	"go.opentelemetry.io/collector/exporter/exporterqueue"
 	"go.opentelemetry.io/collector/exporter/exportertest"
+	"go.opentelemetry.io/collector/exporter/internal"
 	"go.opentelemetry.io/collector/exporter/internal/queue"
 	"go.opentelemetry.io/collector/internal/obsreportconfig/obsmetrics"
 )
@@ -134,7 +135,7 @@ func TestQueuedRetryHappyPath(t *testing.T) {
 					Enabled:      true,
 					QueueSize:    10,
 					NumConsumers: 1,
-				}, exporterqueue.NewMemoryQueueFactory[Request]()),
+				}, exporterqueue.NewMemoryQueueFactory[internal.Request]()),
 				WithRetry(configretry.NewDefaultBackOffConfig()),
 			},
 		},
@@ -145,7 +146,7 @@ func TestQueuedRetryHappyPath(t *testing.T) {
 					Enabled:      true,
 					QueueSize:    10,
 					NumConsumers: 1,
-				}, exporterqueue.NewPersistentQueueFactory[Request](nil, exporterqueue.PersistentQueueSettings[Request]{})),
+				}, exporterqueue.NewPersistentQueueFactory[internal.Request](nil, exporterqueue.PersistentQueueSettings[internal.Request]{})),
 				WithRetry(configretry.NewDefaultBackOffConfig()),
 			},
 		},
@@ -156,7 +157,7 @@ func TestQueuedRetryHappyPath(t *testing.T) {
 					Enabled:      true,
 					QueueSize:    10,
 					NumConsumers: 1,
-				}, exporterqueue.NewPersistentQueueFactory[Request](nil, exporterqueue.PersistentQueueSettings[Request]{})),
+				}, exporterqueue.NewPersistentQueueFactory[internal.Request](nil, exporterqueue.PersistentQueueSettings[internal.Request]{})),
 				WithRetry(configretry.NewDefaultBackOffConfig()),
 			},
 		},
@@ -288,7 +289,7 @@ func TestQueueRetryWithDisabledQueue(t *testing.T) {
 				func() Option {
 					qs := exporterqueue.NewDefaultConfig()
 					qs.Enabled = false
-					return WithRequestQueue(qs, exporterqueue.NewMemoryQueueFactory[Request]())
+					return WithRequestQueue(qs, exporterqueue.NewMemoryQueueFactory[internal.Request]())
 				}(),
 			},
 		},
@@ -324,7 +325,7 @@ func TestQueueFailedRequestDropped(t *testing.T) {
 	logger, observed := observer.New(zap.ErrorLevel)
 	set.Logger = zap.New(logger)
 	be, err := newBaseExporter(set, component.DataTypeLogs, newNoopObsrepSender,
-		WithRequestQueue(exporterqueue.NewDefaultConfig(), exporterqueue.NewMemoryQueueFactory[Request]()))
+		WithRequestQueue(exporterqueue.NewDefaultConfig(), exporterqueue.NewMemoryQueueFactory[internal.Request]()))
 	require.NoError(t, err)
 	require.NoError(t, be.Start(context.Background(), componenttest.NewNopHost()))
 	mockR := newMockRequest(2, errors.New("some error"))
@@ -430,7 +431,7 @@ func TestQueuedRetryPersistentEnabled_NoDataLossOnShutdown(t *testing.T) {
 }
 
 func TestQueueSenderNoStartShutdown(t *testing.T) {
-	queue := queue.NewBoundedMemoryQueue[Request](queue.MemoryQueueSettings[Request]{})
+	queue := queue.NewBoundedMemoryQueue[internal.Request](queue.MemoryQueueSettings[internal.Request]{})
 	set := exportertest.NewNopSettings()
 	obsrep, err := newObsReport(obsReportSettings{
 		exporterID:             exporterID,

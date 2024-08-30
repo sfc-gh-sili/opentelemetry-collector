@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/collector/component/componenttest"
 	"go.opentelemetry.io/collector/exporter/exporterbatcher"
 	"go.opentelemetry.io/collector/exporter/exporterqueue"
+	"go.opentelemetry.io/collector/exporter/internal"
 )
 
 func TestBatchSender_Merge(t *testing.T) {
@@ -228,14 +229,14 @@ func TestBatchSender_Disabled(t *testing.T) {
 }
 
 func TestBatchSender_InvalidMergeSplitFunc(t *testing.T) {
-	invalidMergeSplitFunc := func(_ context.Context, _ exporterbatcher.MaxSizeConfig, _ Request, req2 Request) ([]Request,
+	invalidMergeSplitFunc := func(_ context.Context, _ exporterbatcher.MaxSizeConfig, _ internal.Request, req2 internal.Request) ([]internal.Request,
 		error) {
 		// reply with invalid 0 length slice if req2 is more than 20 items
 		if req2.(*fakeRequest).items > 20 {
-			return []Request{}, nil
+			return []internal.Request{}, nil
 		}
 		// otherwise reply with a single request.
-		return []Request{req2}, nil
+		return []internal.Request{req2}, nil
 	}
 	cfg := exporterbatcher.NewDefaultConfig()
 	cfg.FlushTimeout = 50 * time.Millisecond
@@ -323,7 +324,7 @@ func TestBatchSender_ConcurrencyLimitReached(t *testing.T) {
 			qCfg.NumConsumers = 2
 			be, err := newBaseExporter(defaultSettings, defaultDataType, newNoopObsrepSender,
 				WithBatcher(tt.batcherCfg, WithRequestBatchFuncs(fakeBatchMergeFunc, fakeBatchMergeSplitFunc)),
-				WithRequestQueue(qCfg, exporterqueue.NewMemoryQueueFactory[Request]()))
+				WithRequestQueue(qCfg, exporterqueue.NewMemoryQueueFactory[internal.Request]()))
 			require.NotNil(t, be)
 			require.NoError(t, err)
 			assert.NoError(t, be.Start(context.Background(), componenttest.NewNopHost()))
@@ -532,7 +533,7 @@ func TestBatchSender_ShutdownDeadlock(t *testing.T) {
 	waitMerge := make(chan struct{}, 10)
 
 	// blockedBatchMergeFunc blocks until the blockMerge channel is closed
-	blockedBatchMergeFunc := func(_ context.Context, r1 Request, r2 Request) (Request, error) {
+	blockedBatchMergeFunc := func(_ context.Context, r1 internal.Request, r2 internal.Request) (internal.Request, error) {
 		waitMerge <- struct{}{}
 		<-blockMerge
 		r1.(*fakeRequest).items += r2.(*fakeRequest).items
@@ -616,7 +617,7 @@ func TestBatchSenderWithTimeout(t *testing.T) {
 }
 
 func TestBatchSenderTimerResetNoConflict(t *testing.T) {
-	delayBatchMergeFunc := func(_ context.Context, r1 Request, r2 Request) (Request, error) {
+	delayBatchMergeFunc := func(_ context.Context, r1 internal.Request, r2 internal.Request) (internal.Request, error) {
 		time.Sleep(30 * time.Millisecond)
 		if r1 == nil {
 			return r2, nil
@@ -705,7 +706,7 @@ func TestBatchSenderTimerFlush(t *testing.T) {
 
 func queueBatchExporter(t *testing.T, batchOption Option) *baseExporter {
 	be, err := newBaseExporter(defaultSettings, defaultDataType, newNoopObsrepSender, batchOption,
-		WithRequestQueue(exporterqueue.NewDefaultConfig(), exporterqueue.NewMemoryQueueFactory[Request]()))
+		WithRequestQueue(exporterqueue.NewDefaultConfig(), exporterqueue.NewMemoryQueueFactory[internal.Request]()))
 	require.NotNil(t, be)
 	require.NoError(t, err)
 	return be
