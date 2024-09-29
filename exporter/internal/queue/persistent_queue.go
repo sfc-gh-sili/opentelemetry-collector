@@ -189,34 +189,52 @@ func (pq *persistentQueue[T]) restoreQueueSizeFromStorage(ctx context.Context) (
 	return bytesToItemIndex(val)
 }
 
+
+func (pq *persistentQueue[T]) ClaimAndRead(onClaim func()) (T, bool, func(error)) {
+	_, ok := pq.sizedChannel.pop()
+	onClaim()
+
+	if !ok {
+		var t T
+		return t, false, nil
+	}
+
+	var (
+		req                  T
+		onProcessingFinished func(error)
+		consumed             bool
+	)
+	req, onProcessingFinished, consumed = pq.getNextItem(context.Background())
+	if consumed {
+		pq.sizedChannel.updateSize(-pq.set.Sizer.Sizeof(req))
+	}
+	return req, true, onProcessingFinished
+}
+
+func (pq *persistentQueue[T]) CommitConsume(ctx context.Context, index uint64) {
+	if err := pq.itemDispatchingFinish(ctx, index); err != nil {
+		pq.logger.Error("Error deleting item from queue", zap.Error(err))
+	}
+}
+
 // Consume applies the provided function on the head of queue.
 // The call blocks until there is an item available or the queue is stopped.
 // The function returns true when an item is consumed or false if the queue is stopped.
 func (pq *persistentQueue[T]) Consume(consumeFunc func(context.Context, T) error) bool {
-	for {
-		var (
-			req                  T
-			onProcessingFinished func(error)
-			consumed             bool
-		)
-
-		// If we are stopped we still process all the other events in the channel before, but we
-		// return fast in the `getNextItem`, so we will free the channel fast and get to the stop.
-		_, ok := pq.sizedChannel.pop(func(permanentQueueEl) int64 {
-			req, onProcessingFinished, consumed = pq.getNextItem(context.Background())
-			if !consumed {
-				return 0
-			}
-			return pq.set.Sizer.Sizeof(req)
-		})
-		if !ok {
-			return false
-		}
-		if consumed {
-			onProcessingFinished(consumeFunc(context.Background(), req))
-			return true
-		}
+	// If we are stopped we still process all the other events in the channel before, but we
+	// return fast in the `getNextItem`, so we will free the channel fast and get to the stop.
+	if _, ok := pq.sizedChannel.pop(); !ok {
+		return false
 	}
+
+	req, onProcessingFinished, ok := pq.getNextItem(context.Background())
+	if !ok {
+		return false
+	}
+
+	pq.sizedChannel.updateSize(-pq.set.Sizer.Sizeof(req))
+	onProcessingFinished(consumeFunc(context.Background(), req))
+	return true
 }
 
 func (pq *persistentQueue[T]) Shutdown(ctx context.Context) error {
@@ -345,8 +363,7 @@ func (pq *persistentQueue[T]) getNextItem(ctx context.Context) (T, func(error), 
 
 	// Increase the reference count, so the client is not closed while the request is being processed.
 	// The client cannot be closed because we hold the lock since last we checked `stopped`.
-	pq.refClient++
-	return request, func(consumeErr error) {
+	onProcessingFinished := func(consumeErr error) {
 		// Delete the item from the persistent storage after it was processed.
 		pq.mu.Lock()
 		// Always unref client even if the consumer is shutdown because we always ref it for every valid request.
@@ -378,7 +395,9 @@ func (pq *persistentQueue[T]) getNextItem(ctx context.Context) (T, func(error), 
 		// Ensure the used size and the channel size are in sync.
 		pq.sizedChannel.syncSize()
 
-	}, true
+	}
+	pq.refClient++
+	return request, onProcessingFinished, true
 }
 
 // retrieveAndEnqueueNotDispatchedReqs gets the items for which sending was not finished, cleans the storage

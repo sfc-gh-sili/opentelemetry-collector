@@ -40,17 +40,33 @@ func (q *boundedMemoryQueue[T]) Offer(ctx context.Context, req T) error {
 	return q.sizedChannel.push(memQueueEl[T]{ctx: ctx, req: req}, q.sizer.Sizeof(req), nil)
 }
 
+func (q *boundedMemoryQueue[T]) ClaimAndRead(onClaim func()) (T, bool, func(error)) {
+	item, ok := q.sizedChannel.pop()
+	onClaim()
+
+	if !ok {
+		return item.req, ok, nil
+	}
+
+	q.sizedChannel.updateSize(-q.sizer.Sizeof(item.req))
+	return item.req, ok, nil
+}
+
 // Consume applies the provided function on the head of queue.
 // The call blocks until there is an item available or the queue is stopped.
 // The function returns true when an item is consumed or false if the queue is stopped and emptied.
 func (q *boundedMemoryQueue[T]) Consume(consumeFunc func(context.Context, T) error) bool {
-	item, ok := q.sizedChannel.pop(func(el memQueueEl[T]) int64 { return q.sizer.Sizeof(el.req) })
+	item, ok := q.sizedChannel.pop()
 	if !ok {
 		return false
 	}
+	q.sizedChannel.updateSize(-q.sizer.Sizeof(item.req))
 	// the memory queue doesn't handle consume errors
 	_ = consumeFunc(item.ctx, item.req)
 	return true
+}
+
+func (pq *boundedMemoryQueue[T]) CommitConsume(ctx context.Context, index uint64) {
 }
 
 // Shutdown closes the queue channel to initiate draining of the queue.

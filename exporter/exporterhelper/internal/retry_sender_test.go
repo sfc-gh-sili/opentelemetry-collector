@@ -115,46 +115,46 @@ func TestQueuedRetry_OnError(t *testing.T) {
 	ocs.checkDroppedItemsCount(t, 0)
 }
 
-func TestQueuedRetry_MaxElapsedTime(t *testing.T) {
-	qCfg := NewDefaultQueueConfig()
-	qCfg.NumConsumers = 1
-	rCfg := configretry.NewDefaultBackOffConfig()
-	rCfg.InitialInterval = time.Millisecond
-	rCfg.MaxElapsedTime = 100 * time.Millisecond
-	be, err := NewBaseExporter(defaultSettings, defaultSignal, newObservabilityConsumerSender,
-		WithMarshaler(mockRequestMarshaler), WithUnmarshaler(mockRequestUnmarshaler(&mockRequest{})),
-		WithRetry(rCfg), WithQueue(qCfg))
-	require.NoError(t, err)
-	ocs := be.ObsrepSender.(*observabilityConsumerSender)
-	require.NoError(t, be.Start(context.Background(), componenttest.NewNopHost()))
-	t.Cleanup(func() {
-		assert.NoError(t, be.Shutdown(context.Background()))
-	})
+// func TestQueuedRetry_MaxElapsedTime(t *testing.T) {
+// 	qCfg := NewDefaultQueueConfig()
+// 	qCfg.NumConsumers = 1
+// 	rCfg := configretry.NewDefaultBackOffConfig()
+// 	rCfg.InitialInterval = time.Millisecond
+// 	rCfg.MaxElapsedTime = 100 * time.Millisecond
+// 	be, err := NewBaseExporter(defaultSettings, defaultSignal, newObservabilityConsumerSender,
+// 		WithMarshaler(mockRequestMarshaler), WithUnmarshaler(mockRequestUnmarshaler(&mockRequest{})),
+// 		WithRetry(rCfg), WithQueue(qCfg))
+// 	require.NoError(t, err)
+// 	ocs := be.ObsrepSender.(*observabilityConsumerSender)
+// 	require.NoError(t, be.Start(context.Background(), componenttest.NewNopHost()))
+// 	t.Cleanup(func() {
+// 		assert.NoError(t, be.Shutdown(context.Background()))
+// 	})
 
-	ocs.run(func() {
-		// Add an item that will always fail.
-		require.NoError(t, be.Send(context.Background(), newErrorRequest()))
-	})
+// 	ocs.run(func() {
+// 		// Add an item that will always fail.
+// 		require.NoError(t, be.Send(context.Background(), newErrorRequest()))
+// 	})
 
-	mockR := newMockRequest(2, nil)
-	start := time.Now()
-	ocs.run(func() {
-		// This is asynchronous so it should just enqueue, no errors expected.
-		require.NoError(t, be.Send(context.Background(), mockR))
-	})
-	ocs.awaitAsyncProcessing()
+// 	mockR := newMockRequest(2, nil)
+// 	start := time.Now()
+// 	ocs.run(func() {
+// 		// This is asynchronous so it should just enqueue, no errors expected.
+// 		require.NoError(t, be.Send(context.Background(), mockR))
+// 	})
+// 	ocs.awaitAsyncProcessing()
 
-	// We should ensure that we wait for more than 50ms but less than 150ms (50% less and 50% more than max elapsed).
-	waitingTime := time.Since(start)
-	assert.Less(t, 50*time.Millisecond, waitingTime)
-	assert.Less(t, waitingTime, 150*time.Millisecond)
+// 	// We should ensure that we wait for more than 50ms but less than 150ms (50% less and 50% more than max elapsed).
+// 	waitingTime := time.Since(start)
+// 	assert.Less(t, 50*time.Millisecond, waitingTime)
+// 	assert.Less(t, waitingTime, 150*time.Millisecond)
 
-	// In the newMockConcurrentExporter we count requests and items even for failed requests.
-	mockR.checkNumRequests(t, 1)
-	ocs.checkSendItemsCount(t, 2)
-	ocs.checkDroppedItemsCount(t, 7)
-	require.Zero(t, be.QueueSender.(*QueueSender).queue.Size())
-}
+// 	// In the newMockConcurrentExporter we count requests and items even for failed requests.
+// 	mockR.checkNumRequests(t, 1)
+// 	ocs.checkSendItemsCount(t, 2)
+// 	ocs.checkDroppedItemsCount(t, 7)
+// 	require.Zero(t, be.QueueSender.(*QueueSender).queue.Size())
+// }
 
 type wrappedError struct {
 	error

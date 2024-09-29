@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 
+	"go.opentelemetry.io/collector/exporter/exporterbatcher"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
@@ -80,6 +81,7 @@ type QueueSender struct {
 	numConsumers   int
 	traceAttribute attribute.KeyValue
 	consumers      *queue.Consumers[internal.Request]
+	batcher        *queue.Batcher
 
 	obsrep     *ObsReport
 	exporterID component.ID
@@ -94,7 +96,8 @@ func NewQueueSender(q exporterqueue.Queue[internal.Request], set exporter.Settin
 		obsrep:         obsrep,
 		exporterID:     set.ID,
 	}
-	consumeFunc := func(ctx context.Context, req internal.Request) error {
+
+	exportFunc := func(ctx context.Context, req internal.Request) error {
 		err := qs.NextSender.Send(ctx, req)
 		if err != nil {
 			set.Logger.Error("Exporting failed. Dropping data."+exportFailureMessage,
@@ -102,13 +105,31 @@ func NewQueueSender(q exporterqueue.Queue[internal.Request], set exporter.Settin
 		}
 		return err
 	}
-	qs.consumers = queue.NewQueueConsumers[internal.Request](q, numConsumers, consumeFunc)
+
+	batcherCfg := exporterbatcher.NewDefaultConfig()
+	batcherCfg.Enabled = false
+	qs.batcher = queue.NewBatcher(batcherCfg, q, numConsumers, exportFunc)
+
+	// consumeFunc := func(ctx context.Context, req internal.Request) error {
+	// 	err := qs.NextSender.Send(ctx, req)
+	// 	if err != nil {
+	// 		set.Logger.Error("Exporting failed. Dropping data."+exportFailureMessage,
+	// 			zap.Error(err), zap.Int("dropped_items", req.ItemsCount()))
+	// 	}
+	// 	return err
+	// }
+	// qs.consumers = queue.NewQueueConsumers[internal.Request](q, numConsumers, consumeFunc)
+
 	return qs
 }
 
 // Start is invoked during service startup.
 func (qs *QueueSender) Start(ctx context.Context, host component.Host) error {
-	if err := qs.consumers.Start(ctx, host); err != nil {
+	// if err := qs.consumers.Start(ctx, host); err != nil {
+	// 	return err
+	// }
+
+	if err := qs.batcher.Start(ctx, host); err != nil {
 		return err
 	}
 
@@ -125,7 +146,10 @@ func (qs *QueueSender) Start(ctx context.Context, host component.Host) error {
 func (qs *QueueSender) Shutdown(ctx context.Context) error {
 	// Stop the queue and consumers, this will drain the queue and will call the retry (which is stopped) that will only
 	// try once every request.
-	return qs.consumers.Shutdown(ctx)
+
+	// return qs.consumers.Shutdown(ctx)
+
+	return qs.batcher.Shutdown(ctx)
 }
 
 // send implements the requestSender interface. It puts the request in the queue.
